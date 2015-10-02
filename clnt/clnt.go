@@ -59,13 +59,13 @@ type Clnt struct {
 // low level methods that correspond directly to the 9P2000 message requests
 type Fid struct {
 	sync.Mutex
-	Clnt   *Clnt // Client the fid belongs to
-	Iounit uint32
-	ninep.Qid     // The Qid description for the file
-	Mode   uint8  // Open mode (one of ninep.O* values) (if file is open)
-	Fid    uint32 // Fid number
-	ninep.User    // The user the fid belongs to
-	walked bool   // true if the fid points to a walked file on the server
+	Clnt       *Clnt // Client the fid belongs to
+	Iounit     uint32
+	ninep.Qid         // The Qid description for the file
+	Mode       uint8  // Open mode (one of ninep.O* values) (if file is open)
+	Fid        uint32 // Fid number
+	ninep.User        // The user the fid belongs to
+	walked     bool   // true if the fid points to a walked file on the server
 }
 
 // The file is similar to the Fid, but is used in the high-level client
