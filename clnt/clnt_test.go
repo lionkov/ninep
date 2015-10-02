@@ -381,7 +381,6 @@ func BenchmarkRootWalk(b *testing.B) {
 		b.Fatalf("Can not start listener: %v", err)
 	}
 	srvAddr := l.Addr().String()
-	b.Logf("Server is at %v", srvAddr)
 	go func() {
 		if err = ufs.StartListener(l); err != nil {
 			b.Fatalf("Can not start listener: %v", err)
@@ -404,6 +403,44 @@ func BenchmarkRootWalk(b *testing.B) {
 		f := clnt.FidAlloc()
 		if _, err = clnt.Walk(rootfid, f, []string{"bin"}); err != nil {
 			b.Fatalf("%v", err)
+		}
+	}
+}
+func BenchmarkRootWalkBadFid(b *testing.B) {
+	ufs := new(ufs.Ufs)
+	ufs.Dotu = false
+	ufs.Id = "ufs"
+	ufs.Debuglevel = *debug
+	ufs.Msize = 8192
+	ufs.Start(ufs)
+
+	l, err := net.Listen("unix", "")
+	if err != nil {
+		b.Fatalf("Can not start listener: %v", err)
+	}
+	srvAddr := l.Addr().String()
+	go func() {
+		if err = ufs.StartListener(l); err != nil {
+			b.Fatalf("Can not start listener: %v", err)
+		}
+		b.Fatalf("Listener returned")
+	}()
+	var conn net.Conn
+	if conn, err = net.Dial("unix", srvAddr); err != nil {
+		b.Fatalf("%v", err)
+	}
+
+	user := ninep.OsUsers.Uid2User(os.Geteuid())
+	clnt := NewClnt(conn, 8192, false)
+	rootfid, err := clnt.Attach(nil, user, "/")
+	if err != nil {
+		b.Fatalf("%v", err)
+	}
+
+	rootfid.Fid++
+	for i := 0; i < b.N; i++ {
+		if _, err = clnt.Walk(rootfid, rootfid, []string{"bin"}); err == nil {
+			b.Fatalf("Did not get an expected error on walking a bad fid!")
 		}
 	}
 }
