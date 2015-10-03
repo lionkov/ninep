@@ -7,18 +7,22 @@ package nullfs
 import (
 	"github.com/lionkov/ninep"
 	"github.com/lionkov/ninep/srv"
-	"log"
+)
+
+const (
+	Qroot     = 'r'
+	Qnull     = 'n'
+	Qzero     = 'z'
+	Qnoaccess = 'N'
 )
 
 type NullFS struct {
 	srv.Srv
-	user   ninep.User
-	group  ninep.Group
-	qidMap map[uint32]int
 }
 
 type NullFile struct {
 	Name string
+	*ninep.Qid
 }
 
 type Fid struct {
@@ -28,11 +32,12 @@ type Fid struct {
 var (
 	rsrv    NullFS
 	dirQids = map[string]*ninep.Qid{
-		".":        &ninep.Qid{ninep.QTDIR, 0777, 0},
-		"null":     &ninep.Qid{0, 0666, 1},
-		"zero":     &ninep.Qid{0, 0444, 2},
-		"noaccess": &ninep.Qid{0, 0, 3},
+		".":        &ninep.Qid{Type: ninep.QTDIR, Version: 0777, Path: Qroot},
+		"null":     &ninep.Qid{Type: 0, Version: 0666, Path: Qnull},
+		"zero":     &ninep.Qid{Type: 0, Version: 0444, Path: Qzero},
+		"noaccess": &ninep.Qid{Type: 0, Version: 0, Path: Qnoaccess},
 	}
+	// Verify that we correctly implement ReqOps
 	_ = srv.ReqOps(&NullFS{})
 )
 
@@ -41,8 +46,8 @@ func (f *NullFS) Read(r *srv.Req) {
 
 	ninep.InitRread(r.Rc, r.Tc.Count)
 	fid := r.Fid.Aux.(*Fid)
-	log.Printf("read: fid is %v", fid)
-	if fid.Name == "." {
+
+	if fid.Qid.Path == Qroot {
 		var dirents []byte
 		for path, v := range dirQids {
 			d := &ninep.Dir{
@@ -58,6 +63,7 @@ func (f *NullFS) Read(r *srv.Req) {
 			count += len(b)
 		}
 
+		// TODO: put this boilerplate into a helper function.
 		switch {
 		case r.Tc.Offset > uint64(len(dirents)):
 			count = 0
@@ -68,12 +74,12 @@ func (f *NullFS) Read(r *srv.Req) {
 		}
 
 		if count == 0 && int(r.Tc.Offset) < len(dirents) && len(dirents) > 0 {
-			r.RespondError(&ninep.Error{"too small read size for dir entry", ninep.EINVAL})
+			r.RespondError(&ninep.Error{Err: "too small read size for dir entry", Errornum: ninep.EINVAL})
 			return
 		}
 		copy(r.Rc.Data, dirents[r.Tc.Offset:int(r.Tc.Offset)+count])
 	} else {
-		if fid.Name == "zero" {
+		if fid.Qid.Path == Qzero {
 			count = int(r.Tc.Count)
 		}
 	}
@@ -83,12 +89,10 @@ func (f *NullFS) Read(r *srv.Req) {
 
 func (*NullFS) Clunk(req *srv.Req) { req.RespondRclunk() }
 
+// Write handles writes for writeable files and always succeeds.
+// Only the null files has w so we don't bother checking Path.
 func (f *NullFS) Write(r *srv.Req) {
 	var count uint32
-
-	if r.Tc.Qid.Path == 2 {
-		count = r.Tc.Count
-	}
 	ninep.SetRreadCount(r.Rc, uint32(count))
 	r.Respond()
 }
@@ -101,8 +105,10 @@ func (f *NullFS) Walk(req *srv.Req) {
 		return
 	}
 
+	// The most common case is walking from '.', so we initialize to '.' and fix it up
+	// later if needed.
 	if req.Newfid.Aux == nil {
-		req.Newfid.Aux = &Fid{NullFile: NullFile{Name: "."}}
+		req.Newfid.Aux = &Fid{NullFile: NullFile{Name: ".", Qid: dirQids["."]}}
 	}
 
 	if len(tc.Wname) == 0 {
@@ -114,6 +120,7 @@ func (f *NullFS) Walk(req *srv.Req) {
 		req.RespondError(ninep.ENOENT)
 	} else {
 		req.Newfid.Aux.(*Fid).Name = tc.Wname[0]
+		req.Newfid.Aux.(*Fid).Qid = q
 		req.RespondRwalk([]ninep.Qid{*q})
 	}
 }
@@ -131,16 +138,16 @@ func (f *NullFS) Remove(r *srv.Req) {
 }
 
 func (f *NullFS) Stat(req *srv.Req) {
-	/*
-		fid := req.Fid.Aux.(*Fid)
-		st, err := dir2Dir(fid.path, fid.st, req.Conn.Dotu, req.Conn.Srv.Upool)
-		if err != nil {
-			req.RespondError(err)
-			return
-		}
-		req.RespondRstat(st)
-	*/
-	req.RespondError(srv.Eperm)
+	fid := req.Fid.Aux.(*Fid)
+	d := &ninep.Dir{
+		Qid:  *fid.Qid,
+		Type: uint16(fid.Type),
+		Mode: uint32(fid.Type) | fid.Version,
+		Name: fid.Name,
+		Uid:  "root",
+		Gid:  "root",
+	}
+	req.RespondRstat(d)
 }
 
 func (f *NullFS) Wstat(r *srv.Req) {
@@ -161,9 +168,6 @@ func (*NullFS) Attach(req *srv.Req) {
 
 func NewNullFS(debug int) (*NullFS, error) {
 	f := &NullFS{}
-	//	f.user = ninep.OsUsers.Uid2User(os.Geteuid())
-	//f.group = ninep.OsUsers.Gid2Group(os.Getegid())
-
 	f.Dotu = true
 	f.Debuglevel = debug
 	return f, nil

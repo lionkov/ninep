@@ -15,49 +15,48 @@ import (
 )
 
 // It's recommended not to have a helper. But this is so much boiler plate.
-func setup(t *testing.T) (*clnt.Clnt, *clnt.Fid) {
+func setup(failf func(...interface{})) (*clnt.Clnt, *clnt.Fid) {
 	f := new(NullFS)
 	f.Dotu = false
 	f.Id = "ufs"
 	f.Debuglevel = 0
 	if !f.Start(f) {
-		t.Fatalf("Can't happen: Starting the server failed")
+		failf("Can't happen: Starting the server failed")
 	}
 
 	l, err := net.Listen("unix", "")
 	if err != nil {
-		t.Fatalf("net.Listen: want nil, got %v", err)
+		failf("net.Listen: want nil, got %v", err)
 	}
-	srvAddr := l.Addr().String()
-	t.Logf("Server is at %v", srvAddr)
+
 	go func() {
 		if err = f.StartListener(l); err != nil {
-			t.Fatalf("Can not start listener: %v", err)
+			failf("Can not start listener: %v", err)
 		}
 	}()
 
 	var conn net.Conn
 	if conn, err = net.Dial("unix", l.Addr().String()); err != nil {
-		t.Fatalf("%v", err)
+		failf("%v", err)
 	}
-	t.Logf("Got a conn, %v\n", conn)
+
 	user := ninep.OsUsers.Uid2User(os.Geteuid())
 	clnt := clnt.NewClnt(conn, 8192, false)
 
 	rootfid, err := clnt.Attach(nil, user, "/")
 	if err != nil {
-		t.Fatalf("Attach: %v", err)
+		failf("Attach: %v", err)
 	}
 
 	return clnt, rootfid
 }
 
 func TestAttach(t *testing.T) {
-	setup(t)
+	setup(t.Fatal)
 }
 func TestAttachOpenReaddir(t *testing.T) {
 	var err error
-	clnt, rootfid := setup(t)
+	clnt, rootfid := setup(t.Fatal)
 
 	dirfid := clnt.FidAlloc()
 	if _, err = clnt.Walk(rootfid, dirfid, []string{}); err != nil {
@@ -126,7 +125,7 @@ func TestAttachOpenReaddir(t *testing.T) {
 
 func TestNull(t *testing.T) {
 	var err error
-	clnt, rootfid := setup(t)
+	clnt, rootfid := setup(t.Fatal)
 
 	d := clnt.FidAlloc()
 	if _, err = clnt.Walk(rootfid, d, []string{"null"}); err != nil {
@@ -145,11 +144,23 @@ func TestNull(t *testing.T) {
 		t.Fatalf("Read of null: want 0, got %d bytes", len(b))
 	}
 
+	st, err := clnt.Stat(d)
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+
+	if st.Name != "null" {
+		t.Fatalf("Stat: want 'null', got %v", st.Name)
+	}
+	if st.Mode != 0666 {
+		t.Fatalf("Stat: want 0777, got %o", st.Mode)
+	}
+
 }
 
 func TestZero(t *testing.T) {
 	var err error
-	clnt, rootfid := setup(t)
+	clnt, rootfid := setup(t.Fatal)
 
 	d := clnt.FidAlloc()
 	if _, err = clnt.Walk(rootfid, d, []string{"zero"}); err != nil {
@@ -170,38 +181,26 @@ func TestZero(t *testing.T) {
 
 }
 
-/*
-func BenchmarkVersion(b *testing.B) {
-	nullfs := new(nullfs.Nullfs)
-	nullfs.Dotu = false
-	nullfs.Id = "nullfs"
-	nullfs.Debuglevel = *debug
-	nullfs.Msize = 8192
-	nullfs.Start(nullfs)
-
-	l, err := net.Listen("unix", "")
-	if err != nil {
-		b.Fatalf("Can not start listener: %v", err)
+func BenchmarkNull(b *testing.B) {
+	clnt, rootfid := setup(b.Fatal)
+	d := clnt.FidAlloc()
+	if _, err := clnt.Walk(rootfid, d, []string{"null"}); err != nil {
+		b.Fatalf("%v", err)
 	}
-	srvAddr := l.Addr().String()
-	b.Logf("Server is at %v", srvAddr)
-	go func() {
-		if err = nullfs.StartListener(l); err != nil {
-			b.Fatalf("Can not start listener: %v", err)
-		}
-		b.Fatalf("Listener returned")
-	}()
-	var conn net.Conn
+
+	if err := clnt.Open(d, 0); err != nil {
+		b.Fatalf("%v", err)
+	}
+
 	for i := 0; i < b.N; i++ {
-		if conn, err = net.Dial("unix", srvAddr); err != nil {
-			// Sometimes, things just happen.
-			//b.Logf("%v", err)
-		} else {
-			conn.Close()
+		if _, err := clnt.Read(d, 0, 64*1024); err != nil {
+			b.Fatalf("%v", err)
 		}
 	}
 
 }
+
+/*
 func BenchmarkRootWalk(b *testing.B) {
 	nullfs := new(nullfs.Nullfs)
 	nullfs.Dotu = false
