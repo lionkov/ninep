@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/lionkov/ninep"
+	"github.com/lionkov/ninep/srv/nullfs"
 	"github.com/lionkov/ninep/srv/ufs"
 )
 
@@ -368,6 +369,50 @@ func BenchmarkVersion(b *testing.B) {
 	}
 
 }
+
+func BenchmarkAttach(b *testing.B) {
+	var err error
+	flag.Parse()
+	n, err := nullfs.NewNullFS(*debug)
+	if err != nil {
+		b.Fatalf("could not start NullFS: %v", err)
+	}
+	n.Dotu = false
+	n.Id = "nullfs"
+	n.Start(n)
+
+	b.Log("nullfs starting\n")
+	l, err := net.Listen("unix", "")
+	if err != nil {
+		b.Fatalf("Can not start listener: %v", err)
+	}
+	srvAddr := l.Addr().String()
+	b.Logf("Server is at %v", srvAddr)
+	go func() {
+		if err = n.StartListener(l); err != nil {
+			b.Fatalf("Can not start listener: %v", err)
+		}
+	}()
+	var conn net.Conn
+	if conn, err = net.Dial("unix", srvAddr); err != nil {
+		b.Fatalf("%v", err)
+	} else {
+		b.Logf("Got a conn, %v\n", conn)
+	}
+
+	user := ninep.OsUsers.Uid2User(os.Geteuid())
+	clnt := NewClnt(conn, 8192, false)
+
+	for i := 0; i < b.N; i++ {
+		_, err := clnt.Attach(nil, user, "/tmp")
+
+		if err != nil {
+			b.Fatalf("Connect failed: %v\n", err)
+		}
+		defer clnt.Unmount()
+	}
+}
+
 func BenchmarkRootWalk(b *testing.B) {
 	ufs := new(ufs.Ufs)
 	ufs.Dotu = false
