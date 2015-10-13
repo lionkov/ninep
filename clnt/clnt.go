@@ -90,6 +90,7 @@ type Req struct {
 	Rc         *ninep.Fcall
 	Err        error
 	Done       chan *Req
+	Sent       chan bool
 	tag        uint16
 	prev, next *Req
 	fid        *Fid
@@ -138,6 +139,7 @@ func (clnt *Clnt) Rpc(tc *ninep.Fcall) (rc *ninep.Fcall, err error) {
 	r := clnt.ReqAlloc()
 	r.Tc = tc
 	r.Done = make(chan *Req)
+	r.Sent = make(chan bool)
 	err = clnt.Rpcnb(r)
 	if err != nil {
 		return
@@ -222,6 +224,15 @@ func (clnt *Clnt) recv() {
 				clnt.Unlock()
 				goto closed
 			}
+
+			// Good clean fun. There's a race where you can get the response BEFORE the loop
+			// in send() thinks it is done with the request. So we have to block on
+			// it being sent, because we really can't dequeue any more requests until
+			// this one is wrapped up. TODO: consider a goroutine per fid for this,
+			// if we need it. The reason I feel this is safe is that if we got a tag back
+			// for a request we sent, then r.Sent should be written. If we got a tag
+			// back for a request we did not sent, we won't find it here anyway.
+			<-r.Sent
 
 			r.Rc = fc
 			switch {
@@ -335,6 +346,7 @@ func (clnt *Clnt) send() {
 
 				buf = buf[n:]
 			}
+			req.Sent <- true
 		}
 	}
 }
@@ -426,7 +438,7 @@ func (clnt *Clnt) NewFcall() *ninep.Fcall {
 }
 
 func (clnt *Clnt) FreeFcall(fc *ninep.Fcall) {
-	if false && fc != nil && len(fc.Buf) >= int(atomic.LoadUint32(&clnt.Msize)) {
+	if fc != nil && len(fc.Buf) >= int(atomic.LoadUint32(&clnt.Msize)) {
 		select {
 		case clnt.tchan <- fc:
 			break
