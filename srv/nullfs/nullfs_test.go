@@ -200,6 +200,25 @@ func BenchmarkNull(b *testing.B) {
 
 }
 
+func BenchmarkZero4k(b *testing.B) {
+	clnt, rootfid := setup(b.Fatal)
+	d := clnt.FidAlloc()
+	if _, err := clnt.Walk(rootfid, d, []string{"zero"}); err != nil {
+		b.Fatalf("%v", err)
+	}
+
+	if err := clnt.Open(d, 0); err != nil {
+		b.Fatalf("%v", err)
+	}
+
+	for i := 0; i < b.N; i++ {
+		if _, err := clnt.Read(d, 0, 4*1024); err != nil {
+			b.Fatalf("%v", err)
+		}
+	}
+
+}
+
 /*
 func BenchmarkRootWalk(b *testing.B) {
 	nullfs := new(nullfs.Nullfs)
