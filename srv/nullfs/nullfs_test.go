@@ -15,7 +15,7 @@ import (
 )
 
 // It's recommended not to have a helper. But this is so much boiler plate.
-func setup(failf func(...interface{})) (*clnt.Clnt, *clnt.Fid) {
+func setup(msize uint32, failf func(...interface{})) (*clnt.Clnt, *clnt.Fid) {
 	f := new(NullFS)
 	f.Dotu = false
 	f.Id = "ufs"
@@ -41,7 +41,7 @@ func setup(failf func(...interface{})) (*clnt.Clnt, *clnt.Fid) {
 	}
 
 	user := ninep.OsUsers.Uid2User(os.Geteuid())
-	clnt := clnt.NewClnt(conn, 8192, false)
+	clnt := clnt.NewClnt(conn, msize, false)
 
 	rootfid, err := clnt.Attach(nil, user, "/")
 	if err != nil {
@@ -52,11 +52,11 @@ func setup(failf func(...interface{})) (*clnt.Clnt, *clnt.Fid) {
 }
 
 func TestAttach(t *testing.T) {
-	setup(t.Fatal)
+	setup(9000, t.Fatal)
 }
 func TestAttachOpenReaddir(t *testing.T) {
 	var err error
-	clnt, rootfid := setup(t.Fatal)
+	clnt, rootfid := setup(9000, t.Fatal)
 
 	dirfid := clnt.FidAlloc()
 	if _, err = clnt.Walk(rootfid, dirfid, []string{}); err != nil {
@@ -125,7 +125,7 @@ func TestAttachOpenReaddir(t *testing.T) {
 
 func TestNull(t *testing.T) {
 	var err error
-	clnt, rootfid := setup(t.Fatal)
+	clnt, rootfid := setup(9000, t.Fatal)
 
 	d := clnt.FidAlloc()
 	if _, err = clnt.Walk(rootfid, d, []string{"null"}); err != nil {
@@ -160,7 +160,7 @@ func TestNull(t *testing.T) {
 
 func TestZero(t *testing.T) {
 	var err error
-	clnt, rootfid := setup(t.Fatal)
+	clnt, rootfid := setup(9000, t.Fatal)
 
 	d := clnt.FidAlloc()
 	if _, err = clnt.Walk(rootfid, d, []string{"zero"}); err != nil {
@@ -182,7 +182,7 @@ func TestZero(t *testing.T) {
 }
 
 func BenchmarkNull(b *testing.B) {
-	clnt, rootfid := setup(b.Fatal)
+	clnt, rootfid := setup(9000, b.Fatal)
 	d := clnt.FidAlloc()
 	if _, err := clnt.Walk(rootfid, d, []string{"null"}); err != nil {
 		b.Fatalf("%v", err)
@@ -201,7 +201,7 @@ func BenchmarkNull(b *testing.B) {
 }
 
 func BenchmarkZero4k(b *testing.B) {
-	clnt, rootfid := setup(b.Fatal)
+	clnt, rootfid := setup(9000, b.Fatal)
 	d := clnt.FidAlloc()
 	if _, err := clnt.Walk(rootfid, d, []string{"zero"}); err != nil {
 		b.Fatalf("%v", err)
@@ -212,8 +212,27 @@ func BenchmarkZero4k(b *testing.B) {
 	}
 
 	for i := 0; i < b.N; i++ {
-		if _, err := clnt.Read(d, 0, 4*1024); err != nil {
+		if n, err := clnt.Read(d, 0, 4*1024); err != nil || len(n) != 4096 {
 			b.Fatalf("%v", err)
+		}
+	}
+
+}
+
+func BenchmarkZero1m(b *testing.B) {
+	clnt, rootfid := setup(1<<20 + 64, b.Fatal)
+	d := clnt.FidAlloc()
+	if _, err := clnt.Walk(rootfid, d, []string{"zero"}); err != nil {
+		b.Fatalf("%v", err)
+	}
+
+	if err := clnt.Open(d, 0); err != nil {
+		b.Fatalf("%v", err)
+	}
+
+	for i := 0; i < b.N; i++ {
+		if n, err := clnt.Read(d, 0, 1<<20); err != nil || len(n) != 1<<20{
+			b.Fatalf("%v: only got %d of %d bytes", err, len(n), 1<<20)
 		}
 	}
 
