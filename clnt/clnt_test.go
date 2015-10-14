@@ -47,26 +47,25 @@ func TestAttach(t *testing.T) {
 			t.Fatalf("Can not start listener: %v", err)
 		}
 	}()
-	var conn net.Conn
-	if conn, err = net.Dial("unix", srvAddr); err != nil {
-		t.Fatalf("%v", err)
-	} else {
-		t.Logf("Got a conn, %v\n", conn)
-	}
-
-	user := ninep.OsUsers.Uid2User(os.Geteuid())
-	clnt := NewClnt(conn, 8192, false)
 	// run enough attaches to maybe let the race detector trip.
 	// The default, 1024, is lower than I'd like, but some environments don't
 	// let you do a huge number, as they throttle the accept rate.
 	for i := 0; i < *numAttach; i++ {
+		var conn net.Conn
+		if conn, err = net.Dial("unix", srvAddr); err != nil {
+			t.Fatalf("%v", err)
+		} else {
+			t.Logf("Got a conn, %v\n", conn)
+		}
+
+		user := ninep.OsUsers.Uid2User(os.Geteuid())
+		clnt := NewClnt(conn, 8192, false)
 		_, err := clnt.Attach(nil, user, "/tmp")
 
 		if err != nil {
 			t.Fatalf("Connect failed: %v\n", err)
 		}
-		defer clnt.Unmount()
-
+		clnt.Unmount()
 	}
 }
 
@@ -393,23 +392,23 @@ func BenchmarkAttach(b *testing.B) {
 			b.Fatalf("Can not start listener: %v", err)
 		}
 	}()
-	var conn net.Conn
-	if conn, err = net.Dial("unix", srvAddr); err != nil {
-		b.Fatalf("%v", err)
-	} else {
-		b.Logf("Got a conn, %v\n", conn)
-	}
-
 	user := ninep.OsUsers.Uid2User(os.Geteuid())
-	clnt := NewClnt(conn, 8192, false)
-
 	for i := 0; i < b.N; i++ {
+		var conn net.Conn
+		if conn, err = net.Dial("unix", srvAddr); err != nil {
+			b.Fatalf("%v", err)
+		} else {
+			b.Logf("Got a conn, %v\n", conn)
+		}
+
+		clnt := NewClnt(conn, 8192, false)
+
 		_, err := clnt.Attach(nil, user, "/tmp")
 
 		if err != nil {
 			b.Fatalf("Connect failed: %v\n", err)
 		}
-		defer clnt.Unmount()
+		clnt.Unmount()
 	}
 }
 
