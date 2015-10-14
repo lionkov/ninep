@@ -120,5 +120,4 @@ func (file *File) Readdir(num int) ([]*ninep.Dir, error) {
 			}
 		}
 	}
-	return dirs[0:pos], nil
 }
