@@ -200,8 +200,8 @@ func BenchmarkNull(b *testing.B) {
 
 }
 
-func BenchmarkZero8KPkt9KMsize(b *testing.B) {
-	clnt, rootfid := setup(9000, b.Fatal)
+func benchZero(b *testing.B, msize, iosize uint32) {
+	clnt, rootfid := setup(msize, b.Fatal)
 	d := clnt.FidAlloc()
 	if _, err := clnt.Walk(rootfid, d, []string{"zero"}); err != nil {
 		b.Fatalf("%v", err)
@@ -212,75 +212,30 @@ func BenchmarkZero8KPkt9KMsize(b *testing.B) {
 	}
 
 	for i := 0; i < b.N; i++ {
-		if n, err := clnt.Read(d, 0, 8*1024); err != nil || len(n) != 8192 {
-			b.Fatalf("%v", err)
+		for tot := uint32(0); tot < iosize; {
+			if n, err := clnt.Read(d, 0, iosize); err != nil {
+				b.Fatalf("%v: only got %d of %d bytes", err, len(n), iosize)
+			} else {
+				tot += uint32(len(n))
+			}
 		}
 	}
+}
 
+func BenchmarkZero8KPkt9KMsize(b *testing.B) {
+	benchZero(b, 9000, 8192)
 }
 
 func BenchmarkZero1MPkt1MMsize(b *testing.B) {
-	clnt, rootfid := setup(1<<20 + 64, b.Fatal)
-	d := clnt.FidAlloc()
-	if _, err := clnt.Walk(rootfid, d, []string{"zero"}); err != nil {
-		b.Fatalf("%v", err)
-	}
-
-	if err := clnt.Open(d, 0); err != nil {
-		b.Fatalf("%v", err)
-	}
-
-	for i := 0; i < b.N; i++ {
-		if n, err := clnt.Read(d, 0, 1<<20); err != nil || len(n) != 1<<20{
-			b.Fatalf("%v: only got %d of %d bytes", err, len(n), 1<<20)
-		}
-	}
-
+	benchZero(b, 1<<20, 1<<20)
 }
 
 func BenchmarkZero1Mpkt9KMsize(b *testing.B) {
-	clnt, rootfid := setup(8192 + 64, b.Fatal)
-	d := clnt.FidAlloc()
-	if _, err := clnt.Walk(rootfid, d, []string{"zero"}); err != nil {
-		b.Fatalf("%v", err)
-	}
-
-	if err := clnt.Open(d, 0); err != nil {
-		b.Fatalf("%v", err)
-	}
-
-	for i := 0; i < b.N; i++ {
-		for tot := 0; tot < 1 <<20; {
-		if n, err := clnt.Read(d, 0, 1<<20); err != nil {
-			b.Fatalf("%v: only got %d of %d bytes", err, len(n), 1<<20)
-		} else {
-			tot += len(n)
-		}
-		}
-	}
-
+	benchZero(b, 9000, 1<<20)
 }
 
 func BenchmarkZero8KPkt1MMsize(b *testing.B) {
-	clnt, rootfid := setup(1<<20 + 64, b.Fatal)
-	d := clnt.FidAlloc()
-	if _, err := clnt.Walk(rootfid, d, []string{"zero"}); err != nil {
-		b.Fatalf("%v", err)
-	}
-
-	if err := clnt.Open(d, 0); err != nil {
-		b.Fatalf("%v", err)
-	}
-
-	for i := 0; i < b.N; i++ {
-		for tot := 0; tot < 8192; {
-		if n, err := clnt.Read(d, 0, 8192); err != nil {
-			b.Fatalf("%v: only got %d of %d bytes", err, len(n), 8192)
-		} else {
-			tot += len(n)
-		}
-		}
-	}
+	benchZero(b, 1<<20, 8192)
 
 }
 
