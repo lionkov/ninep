@@ -8,11 +8,12 @@ package clnt
 
 import (
 	"fmt"
-	"github.com/lionkov/ninep"
 	"log"
 	"net"
 	"sync"
 	"sync/atomic"
+
+	"github.com/lionkov/ninep"
 )
 
 // Debug flags
@@ -169,6 +170,7 @@ func (clnt *Clnt) recv() {
 		}
 
 		n, oerr := clnt.conn.Read(buf[pos:])
+
 		if oerr != nil || n == 0 {
 			err = &ninep.Error{oerr.Error(), ninep.EIO}
 			clnt.Lock()
@@ -328,7 +330,11 @@ func (clnt *Clnt) send() {
 			if clnt.Debuglevel > 0 {
 				clnt.logFcall(req.Tc)
 				if clnt.Debuglevel&DbgPrintPackets != 0 {
-					log.Println("{-{", clnt.Id, fmt.Sprint(req.Tc.Pkt))
+					log.Print("{-{", clnt.Id, fmt.Sprint(req.Tc.Pkt))
+					if req.Tc.Type == ninep.Twrite {
+						log.Print(fmt.Sprint(req.Tc.Data))
+					}
+					fmt.Println("")
 				}
 
 				if clnt.Debuglevel&DbgPrintFcalls != 0 {
@@ -345,6 +351,18 @@ func (clnt *Clnt) send() {
 				}
 
 				buf = buf[n:]
+			}
+			if req.Tc.Type == ninep.Twrite {
+				for buf := req.Tc.Data; len(buf) > 0; {
+					n, err := clnt.conn.Write(buf)
+					if err != nil {
+						/* just close the socket, will get signal on clnt.done */
+						clnt.conn.Close()
+						break
+					}
+
+					buf = buf[n:]
+				}
 			}
 			req.Sent <- true
 		}

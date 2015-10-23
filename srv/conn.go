@@ -88,12 +88,14 @@ func (conn *Conn) recv() {
 		pos += n
 		for pos > 4 {
 			sz, _ := ninep.Gint32(buf)
+
 			if sz > conn.Msize {
 				log.Println("bad client connection: ", conn.conn.RemoteAddr())
 				conn.conn.Close()
 				conn.close()
 				return
 			}
+
 			if pos < int(sz) {
 				if len(buf) < int(sz) {
 					b := make([]byte, conn.Msize*8)
@@ -105,8 +107,9 @@ func (conn *Conn) recv() {
 				break
 			}
 			fc, err, fcsize := ninep.Unpack(buf, conn.Dotu)
+
 			if err != nil {
-				log.Println(fmt.Sprintf("invalid packet : %v %v", err, buf))
+				log.Println(fmt.Sprintf("invalid packet : %v %v", err, buf[:32]))
 				conn.conn.Close()
 				conn.close()
 				return

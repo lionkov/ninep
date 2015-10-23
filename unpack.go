@@ -25,7 +25,7 @@ func Unpack(buf []byte, dotu bool) (fc *Fcall, err error, fcsz int) {
 
 	p := buf
 	fc.Size, p = gint32(p)
-	fc.Type, p = gint8(p)
+	fc.Type, p = gintMType(p)
 	fc.Tag, p = gint16(p)
 
 	if int(fc.Size) > len(buf) || fc.Size < 7 {
