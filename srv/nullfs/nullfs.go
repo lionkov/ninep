@@ -92,9 +92,7 @@ func (*NullFS) Clunk(req *srv.Req) { req.RespondRclunk() }
 // Write handles writes for writeable files and always succeeds.
 // Only the null files has w so we don't bother checking Path.
 func (f *NullFS) Write(r *srv.Req) {
-	var count uint32
-	ninep.SetRreadCount(r.Rc, uint32(count))
-	r.Respond()
+	r.RespondRwrite(uint32(len(r.Tc.Data)))
 }
 
 func (f *NullFS) Walk(req *srv.Req) {

@@ -44,6 +44,7 @@ func (clnt *Clnt) Attach(afid *Fid, user ninep.User, aname string) (*Fid, error)
 
 	fid := clnt.FidAlloc()
 	tc := clnt.NewFcall()
+
 	err := ninep.PackTattach(tc, fid.Fid, afno, user.Name(), aname, uint32(user.Id()), clnt.Dotu)
 	if err != nil {
 		return nil, err

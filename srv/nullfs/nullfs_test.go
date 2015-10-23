@@ -5,6 +5,7 @@
 package nullfs
 
 import (
+	"flag"
 	"io"
 	"net"
 	"os"
@@ -14,12 +15,14 @@ import (
 	"github.com/lionkov/ninep/clnt"
 )
 
+var debug = flag.Int("debug", 0, "Debug level")
+
 // It's recommended not to have a helper. But this is so much boiler plate.
 func setup(msize uint32, failf func(...interface{})) (*clnt.Clnt, *clnt.Fid) {
 	f := new(NullFS)
 	f.Dotu = false
 	f.Id = "ufs"
-	f.Debuglevel = 0
+	f.Debuglevel = *debug
 	if !f.Start(f) {
 		failf("Can't happen: Starting the server failed")
 	}
@@ -36,8 +39,7 @@ func setup(msize uint32, failf func(...interface{})) (*clnt.Clnt, *clnt.Fid) {
 	}()
 
 	user := ninep.OsUsers.Uid2User(os.Geteuid())
-
-	clnt, err := clnt.Mount("unix", l.Addr().String(), "/", 8192, user)
+	clnt, err := clnt.Mount("unix", l.Addr().String(), "/", msize, user)
 
 	if err != nil {
 		failf("Attach: %v", err)
@@ -125,16 +127,16 @@ func TestNull(t *testing.T) {
 
 	d := clnt.FidAlloc()
 	if _, err = clnt.Walk(rootfid, d, []string{"null"}); err != nil {
-		t.Fatalf("%v", err)
+		t.Fatalf("Walk %v", err)
 	}
 
 	if err = clnt.Open(d, 0); err != nil {
-		t.Fatalf("%v", err)
+		t.Fatalf("Open %v", err)
 	}
 
 	var b []byte
 	if b, err = clnt.Read(d, 0, 64*1024); err != nil {
-		t.Fatalf("%v", err)
+		t.Fatalf("Read %v", err)
 	}
 	if len(b) > 0 {
 		t.Fatalf("Read of null: want 0, got %d bytes", len(b))
@@ -142,7 +144,7 @@ func TestNull(t *testing.T) {
 
 	st, err := clnt.Stat(d)
 	if err != nil {
-		t.Fatalf("%v", err)
+		t.Fatalf("Stat %v", err)
 	}
 
 	if st.Name != "null" {

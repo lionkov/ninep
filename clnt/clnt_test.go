@@ -295,17 +295,17 @@ func TestRename(t *testing.T) {
 
 	f := clnt.FidAlloc()
 	if _, err = clnt.Walk(rootfid, f, []string{"a"}); err != nil {
-		t.Fatalf("%v", err)
+		t.Fatalf("Walk 'a': got %v, want nil", err)
 	}
 	t.Logf("Walked to a")
 	if _, err := clnt.Stat(f); err != nil {
-		t.Fatalf("%v", err)
+		t.Fatalf("Stat 'a': got %v, want nil", err)
 	}
 	if err := clnt.FSync(f); err != nil {
-		t.Fatalf("%v", err)
+		t.Fatalf("Fsync 'a': got %v, want nil", err)
 	}
 	if err = clnt.Rename(f, "b"); err != nil {
-		t.Errorf("%v", err)
+		t.Fatalf("'a' to 'b': got %v, want nil", err)
 	}
 	// the old one should be gone, and the new one should be there.
 	if _, err = ioutil.ReadFile(from); err == nil {
@@ -322,7 +322,7 @@ func TestRename(t *testing.T) {
 	// of course.
 	from = to
 	if err = clnt.Rename(f, "c"); err != nil {
-		t.Errorf("%v", err)
+		t.Errorf("rename to 'c': got %v, want nil", err)
 	}
 
 	// the old one should be gone, and the new one should be there.
@@ -336,12 +336,15 @@ func TestRename(t *testing.T) {
 	}
 
 	// Make sure they can't walk out of the root.
+	// The idea here is that the ..'s should collapse
+	// and d should end up in the same dir as c, since
+	// this is all done w.r.t. the rootfid.
 
-	from = to
 	if err = clnt.Rename(f, "../../../../d"); err != nil {
-		t.Errorf("%v", err)
+		t.Errorf("Rename to '../../../../d'; got nil, want err")
 	}
 
+	from = to
 	// the old one should be gone, and the new one should be there.
 	if _, err = ioutil.ReadFile(from); err == nil {
 		t.Errorf("ReadFile(%v): got nil, want err", from)
@@ -352,6 +355,63 @@ func TestRename(t *testing.T) {
 		t.Errorf("ReadFile(%v): got %v, want nil", to, err)
 	}
 
+}
+
+func TestCreate(t *testing.T) {
+	var err error
+	flag.Parse()
+	ufs := new(ufs.Ufs)
+	ufs.Dotu = false
+	ufs.Id = "ufs"
+	ufs.Debuglevel = *debug
+	ufs.Msize = 8192
+	ufs.Start(ufs)
+
+	tmpDir, err := ioutil.TempDir("", "go9")
+	if err != nil {
+		t.Fatal("Can't create temp directory")
+	}
+	defer os.RemoveAll(tmpDir)
+	ufs.Root = tmpDir
+	t.Logf("ufs starting in %v", tmpDir)
+	// determined by build tags
+	//extraFuncs()
+	l, err := net.Listen("unix", "")
+	if err != nil {
+		t.Fatalf("Can not start listener: %v", err)
+	}
+	srvAddr := l.Addr().String()
+	t.Logf("Server is at %v", srvAddr)
+	go func() {
+		if err = ufs.StartListener(l); err != nil {
+			t.Fatalf("Can not start listener: %v", err)
+		}
+	}()
+
+	user := ninep.OsUsers.Uid2User(os.Geteuid())
+	clnt, err := Mount("unix", srvAddr, "/", 8192, user)
+	if err != nil {
+		t.Fatalf("Connect failed: %v\n", err)
+	}
+	rootfid := clnt.Root
+	clnt.Debuglevel = 0 // *debug
+	t.Logf("attached to %v, rootfid %v\n", tmpDir, rootfid)
+	// Create a file via 9p.
+	if err := clnt.Create(rootfid, "hi", 0644, 2, ""); err != nil {
+		t.Fatalf("Create over 9p: got %v, want nil", err)
+	}
+
+	f := path.Join(tmpDir, "hi")
+	fi, err := os.Stat(f)
+	if err != nil {
+		t.Fatalf("Stat %v: got %v, want nil", f, err)
+	}
+	if fi.Mode() != 0644 {
+		t.Errorf("%v: Mode is %v, want 0644", f, fi.Mode())
+	}
+	if fi.Name() != "hi" {
+		t.Errorf("Name is %v, want %v", "hi", fi.Name())
+	}
 }
 
 func BenchmarkVersion(b *testing.B) {

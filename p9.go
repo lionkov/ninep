@@ -7,12 +7,13 @@
 package ninep
 
 import (
+	"bytes"
 	"fmt"
 )
 
 // 9P2000 message types
 const (
-	Tversion = 100 + iota
+	Tversion MType = 100 + iota
 	Rversion
 	Tauth
 	Rauth
@@ -112,6 +113,17 @@ const (
 	EINVAL  = 22
 )
 
+type (
+	MType      uint8
+	Mode       uint8
+	NumEntries uint16
+	Tag        uint16
+	FID        uint32
+	Count      int32
+	Perm       int32
+	Offset     uint64
+)
+
 // Error represents a 9P2000 (and 9P2000.u) error
 type Error struct {
 	Err      string // textual representation of the error
@@ -147,10 +159,17 @@ type Dir struct {
 	Muidnum uint32 // ID of the last user that modified the file
 }
 
+type DirDotu Dir
+
+// WriteData is just a hook we use to enable the Encoder to ignore data but count
+// it in the packet length.
+
+type WriteData []byte
+
 // Fcall represents a 9P2000 message
 type Fcall struct {
 	Size    uint32   // size of the message
-	Type    uint8    // message type
+	Type    MType    // message type
 	Fid     uint32   // file identifier
 	Tag     uint16   // message tag
 	Msize   uint32   // maximum message size (used by Tversion, Rversion)
@@ -178,8 +197,9 @@ type Fcall struct {
 	Ext      string // special file description, 9P2000.u only (used by Tcreate)
 	Unamenum uint32 // user ID, 9P2000.u only (used by Tauth, Tattach)
 
-	Pkt []uint8 // raw packet data
-	Buf []uint8 // buffer to put the raw data in
+	Pkt  []uint8 // raw packet data
+	Buf  []uint8 // buffer to put the raw data in
+	Bbuf bytes.Buffer
 }
 
 // Interface for accessing users and groups
@@ -282,6 +302,8 @@ var minFcusize = [...]uint32{
 }
 
 func gint8(buf []byte) (uint8, []byte) { return buf[0], buf[1:] }
+
+func gintMType(buf []byte) (MType, []byte) { return MType(buf[0]), buf[1:] }
 
 func gint16(buf []byte) (uint16, []byte) {
 	return uint16(buf[0]) | (uint16(buf[1]) << 8), buf[2:]
@@ -540,18 +562,18 @@ func SetTag(fc *Fcall, tag uint16) {
 	pint16(tag, fc.Pkt[5:])
 }
 
-func packCommon(fc *Fcall, size int, id uint8) ([]byte, error) {
+func packCommon(fc *Fcall, size int, id MType) ([]byte, error) {
 	size += 4 + 1 + 2 /* size[4] id[1] tag[2] */
 	if len(fc.Buf) < int(size) {
 		return nil, &Error{"buffer too small", EINVAL}
 	}
 
 	fc.Size = uint32(size)
-	fc.Type = id
+	fc.Type = MType(id)
 	fc.Tag = NOTAG
 	p := fc.Buf
 	p = pint32(uint32(size), p)
-	p = pint8(id, p)
+	p = pint8(uint8(id), p)
 	p = pint16(NOTAG, p)
 	fc.Pkt = fc.Buf[0:size]
 
