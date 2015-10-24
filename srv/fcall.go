@@ -5,6 +5,7 @@
 package srv
 
 import (
+	"log"
 	"sync/atomic"
 
 	"github.com/lionkov/ninep"
@@ -58,6 +59,7 @@ func (srv *Srv) auth(req *Req) {
 
 	req.Afid = conn.FidNew(tc.Afid)
 	if req.Afid == nil {
+		log.Printf("in auth(): Fid %v in use?", tc.Afid)
 		req.RespondError(Einuse)
 		return
 	}
@@ -106,6 +108,7 @@ func (srv *Srv) attach(req *Req) {
 
 	req.Fid = conn.FidNew(tc.Fid)
 	if req.Fid == nil {
+		log.Printf("attach: Fid %v in use? ", tc.Fid)
 		req.RespondError(Einuse)
 		return
 	}
@@ -203,6 +206,7 @@ func (srv *Srv) walk(req *Req) {
 	if tc.Fid != tc.Newfid {
 		req.Newfid = conn.FidNew(tc.Newfid)
 		if req.Newfid == nil {
+			log.Printf("walk: fid %v in use? ", tc.Newfid)
 			req.RespondError(Einuse)
 			return
 		}
