@@ -5,8 +5,8 @@
 package srv
 
 import (
-	"github.com/lionkov/ninep"
 	"fmt"
+	"github.com/lionkov/ninep"
 	"log"
 	"net"
 )

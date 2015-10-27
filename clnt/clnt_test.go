@@ -22,7 +22,43 @@ import (
 
 var debug = flag.Int("debug", 0, "print debug messages")
 var numDir = flag.Int("numdir", 16384, "Number of directory entries for readdir testing")
-var numAttach = flag.Int("numattach", 65536, "Number of attaches in make in TestAttach")
+var numMount = flag.Int("nummount", 65536, "Number of mounts to make in TestAttach")
+
+func TestAttachWithoutTversion(t *testing.T) {
+	var err error
+	flag.Parse()
+	ufs := new(ufs.Ufs)
+	ufs.Dotu = false
+	ufs.Id = "ufs"
+	ufs.Debuglevel = *debug
+	ufs.Start(ufs)
+
+	t.Log("ufs starting\n")
+	// determined by build tags
+	//extraFuncs()
+	l, err := net.Listen("unix", "")
+	if err != nil {
+		t.Fatalf("Can not start listener: %v", err)
+	}
+	srvAddr := l.Addr().String()
+	t.Logf("Server is at %v", srvAddr)
+	go func() {
+		if err = ufs.StartListener(l); err != nil {
+			t.Fatalf("Can not start listener: %v", err)
+		}
+	}()
+	var conn net.Conn
+	if conn, err = net.Dial("unix", srvAddr); err != nil {
+		t.Fatalf("%v", err)
+	}
+
+	user := ninep.OsUsers.Uid2User(os.Geteuid())
+	clnt := NewClnt(conn, 8192, false)
+	_, err = clnt.Attach(nil, user, "/tmp")
+	if err == nil {
+		t.Fatalf("Attach without Tversion got nil, wanted err")
+	}
+}
 
 func TestAttach(t *testing.T) {
 	var err error
@@ -47,24 +83,16 @@ func TestAttach(t *testing.T) {
 			t.Fatalf("Can not start listener: %v", err)
 		}
 	}()
-	// run enough attaches to maybe let the race detector trip.
+	// run enough mounts to maybe let the race detector trip.
 	// The default, 1024, is lower than I'd like, but some environments don't
 	// let you do a huge number, as they throttle the accept rate.
-	for i := 0; i < *numAttach; i++ {
-		var conn net.Conn
-		if conn, err = net.Dial("unix", srvAddr); err != nil {
-			t.Fatalf("%v", err)
-		} else {
-			t.Logf("Got a conn, %v\n", conn)
-		}
-
+	for i := 0; i < *numMount; i++ {
 		user := ninep.OsUsers.Uid2User(os.Geteuid())
-		clnt := NewClnt(conn, 8192, false)
-		_, err := clnt.Attach(nil, user, "/tmp")
-
+		clnt, err := Mount("unix", srvAddr, "/", 8192, user)
 		if err != nil {
 			t.Fatalf("Connect failed: %v\n", err)
 		}
+
 		clnt.Unmount()
 	}
 }
@@ -98,22 +126,16 @@ func TestAttachOpenReaddir(t *testing.T) {
 			t.Fatalf("Can not start listener: %v", err)
 		}
 	}()
-	var conn net.Conn
-	if conn, err = net.Dial("unix", srvAddr); err != nil {
-		t.Fatalf("%v", err)
-	} else {
-		t.Logf("Got a conn, %v\n", conn)
-	}
 
-	clnt := NewClnt(conn, 8192, false)
-	// packet debugging on clients is broken.
-	clnt.Debuglevel = 0 // *debug
 	user := ninep.OsUsers.Uid2User(os.Geteuid())
-	rootfid, err := clnt.Attach(nil, user, "/")
+	clnt, err := Mount("unix", srvAddr, "/", 8192, user)
 	if err != nil {
-		t.Fatalf("%v", err)
+		t.Fatalf("Connect failed: %v\n", err)
 	}
-	t.Logf("attached, rootfid %v\n", rootfid)
+	rootfid := clnt.Root
+	clnt.Debuglevel = 0 // *debug
+	t.Logf("mounted, rootfid %v\n", rootfid)
+
 	dirfid := clnt.FidAlloc()
 	if _, err = clnt.Walk(rootfid, dirfid, []string{"."}); err != nil {
 		t.Fatalf("%v", err)
@@ -254,19 +276,14 @@ func TestRename(t *testing.T) {
 			t.Fatalf("Can not start listener: %v", err)
 		}
 	}()
-	var conn net.Conn
-	if conn, err = net.Dial("unix", srvAddr); err != nil {
-		t.Fatalf("%v", err)
-	} else {
-		t.Logf("Got a conn, %v\n", conn)
-	}
 
-	clnt := NewClnt(conn, 8192, false)
 	user := ninep.OsUsers.Uid2User(os.Geteuid())
-	rootfid, err := clnt.Attach(nil, user, "/")
+	clnt, err := Mount("unix", srvAddr, "/", 8192, user)
 	if err != nil {
-		t.Fatalf("%v", err)
+		t.Fatalf("Connect failed: %v\n", err)
 	}
+	rootfid := clnt.Root
+	clnt.Debuglevel = 0 // *debug
 	t.Logf("attached to %v, rootfid %v\n", tmpDir, rootfid)
 	// OK, create a file behind nineps back and then rename it.
 	b := make([]byte, 0)
@@ -401,13 +418,11 @@ func BenchmarkAttach(b *testing.B) {
 			b.Logf("Got a conn, %v\n", conn)
 		}
 
-		clnt := NewClnt(conn, 8192, false)
-
-		_, err := clnt.Attach(nil, user, "/tmp")
-
+		clnt, err := Mount("unix", srvAddr, "/", 8192, user)
 		if err != nil {
 			b.Fatalf("Connect failed: %v\n", err)
 		}
+
 		clnt.Unmount()
 	}
 }
@@ -431,17 +446,14 @@ func BenchmarkRootWalk(b *testing.B) {
 		}
 		b.Fatalf("Listener returned")
 	}()
-	var conn net.Conn
-	if conn, err = net.Dial("unix", srvAddr); err != nil {
-		b.Fatalf("%v", err)
-	}
 
 	user := ninep.OsUsers.Uid2User(os.Geteuid())
-	clnt := NewClnt(conn, 8192, false)
-	rootfid, err := clnt.Attach(nil, user, "/")
+	clnt, err := Mount("unix", srvAddr, "/", 8192, user)
 	if err != nil {
-		b.Fatalf("%v", err)
+		b.Fatalf("Connect failed: %v\n", err)
 	}
+	rootfid := clnt.Root
+	clnt.Debuglevel = 0 // *debug
 
 	for i := 0; i < b.N; i++ {
 		f := clnt.FidAlloc()
@@ -469,17 +481,14 @@ func BenchmarkRootWalkBadFid(b *testing.B) {
 		}
 		b.Fatalf("Listener returned")
 	}()
-	var conn net.Conn
-	if conn, err = net.Dial("unix", srvAddr); err != nil {
-		b.Fatalf("%v", err)
-	}
 
 	user := ninep.OsUsers.Uid2User(os.Geteuid())
-	clnt := NewClnt(conn, 8192, false)
-	rootfid, err := clnt.Attach(nil, user, "/")
+	clnt, err := Mount("unix", srvAddr, "/", 8192, user)
 	if err != nil {
-		b.Fatalf("%v", err)
+		b.Fatalf("Connect failed: %v\n", err)
 	}
+	rootfid := clnt.Root
+	clnt.Debuglevel = 0 // *debug
 
 	rootfid.Fid++
 	for i := 0; i < b.N; i++ {

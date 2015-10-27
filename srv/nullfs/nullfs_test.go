@@ -35,19 +35,15 @@ func setup(msize uint32, failf func(...interface{})) (*clnt.Clnt, *clnt.Fid) {
 		}
 	}()
 
-	var conn net.Conn
-	if conn, err = net.Dial("unix", l.Addr().String()); err != nil {
-		failf("%v", err)
-	}
-
 	user := ninep.OsUsers.Uid2User(os.Geteuid())
-	clnt := clnt.NewClnt(conn, msize, false)
 
-	rootfid, err := clnt.Attach(nil, user, "/")
+	clnt, err := clnt.Mount("unix", l.Addr().String(), "/", 8192, user)
+
 	if err != nil {
 		failf("Attach: %v", err)
 	}
 
+	rootfid := clnt.Root
 	return clnt, rootfid
 }
 

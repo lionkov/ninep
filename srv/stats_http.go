@@ -7,11 +7,12 @@
 package srv
 
 import (
-	"github.com/lionkov/ninep"
 	"fmt"
 	"io"
 	"net/http"
 	"sync"
+
+	"github.com/lionkov/ninep"
 )
 
 var mux sync.RWMutex
@@ -36,7 +37,7 @@ func (srv *Srv) statsRegister() {
 		http.HandleFunc("/ninep/", StatsHandler)
 		go http.ListenAndServe(":6060", nil)
 	})
-		
+
 	register("/ninep/srv/"+srv.Id, srv)
 }
 

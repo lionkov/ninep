@@ -10,6 +10,7 @@ import (
 	"github.com/lionkov/ninep"
 	"net"
 	"sync"
+	"sync/atomic"
 )
 
 type reqStatus int
@@ -144,13 +145,14 @@ type StatsOps interface {
 // that implements the file server operations.
 type Srv struct {
 	sync.Mutex
-	Id         string  // Used for debugging and stats
-	Msize      uint32  // Maximum size of the 9P2000 messages supported by the server
-	Dotu       bool    // If true, the server supports the 9P2000.u extension
-	Debuglevel int     // debug level
+	Id         string      // Used for debugging and stats
+	Msize      uint32      // Maximum size of the 9P2000 messages supported by the server
+	Dotu       bool        // If true, the server supports the 9P2000.u extension
+	Debuglevel int         // debug level
 	Upool      ninep.Users // Interface for finding users and groups known to the file server
-	Maxpend    int     // Maximum pending outgoing requests
+	Maxpend    int         // Maximum pending outgoing requests
 	Log        *ninep.Logger
+	Versioned  uint32 // How many times we've been Tversioned. Versioned > 0 is required before any other operations.
 
 	ops   interface{}     // operations
 	conns map[*Conn]*Conn // List of connections
@@ -210,10 +212,10 @@ type Req struct {
 	sync.Mutex
 	Tc     *ninep.Fcall // Incoming 9P2000 message
 	Rc     *ninep.Fcall // Outgoing 9P2000 response
-	Fid    *Fid     // The Fid value for all messages that contain fid[4]
-	Afid   *Fid     // The Fid value for the messages that contain afid[4] (Tauth and Tattach)
-	Newfid *Fid     // The Fid value for the messages that contain newfid[4] (Twalk)
-	Conn   *Conn    // Connection that the request belongs to
+	Fid    *Fid         // The Fid value for all messages that contain fid[4]
+	Afid   *Fid         // The Fid value for the messages that contain afid[4] (Tauth and Tattach)
+	Newfid *Fid         // The Fid value for the messages that contain newfid[4] (Twalk)
+	Conn   *Conn        // Connection that the request belongs to
 
 	status     reqStatus
 	flushreq   *Req
@@ -300,7 +302,52 @@ func (req *Req) Process() {
 			return
 		}
 	}
+	if atomic.LoadUint32(&srv.Versioned) > 0 {
+		switch req.Tc.Type {
+		default:
+			req.RespondError(&ninep.Error{"unknown message type", ninep.EINVAL})
 
+		case ninep.Tversion:
+			srv.version(req)
+
+		case ninep.Tauth:
+			srv.auth(req)
+
+		case ninep.Tattach:
+			srv.attach(req)
+
+		case ninep.Tflush:
+			srv.flush(req)
+
+		case ninep.Twalk:
+			srv.walk(req)
+
+		case ninep.Topen:
+			srv.open(req)
+
+		case ninep.Tcreate:
+			srv.create(req)
+
+		case ninep.Tread:
+			srv.read(req)
+
+		case ninep.Twrite:
+			srv.write(req)
+
+		case ninep.Tclunk:
+			srv.clunk(req)
+
+		case ninep.Tremove:
+			srv.remove(req)
+
+		case ninep.Tstat:
+			srv.stat(req)
+
+		case ninep.Twstat:
+			srv.wstat(req)
+		}
+		return
+	}
 	switch req.Tc.Type {
 	default:
 		req.RespondError(&ninep.Error{"unknown message type", ninep.EINVAL})
@@ -308,42 +355,21 @@ func (req *Req) Process() {
 	case ninep.Tversion:
 		srv.version(req)
 
-	case ninep.Tauth:
-		srv.auth(req)
-
-	case ninep.Tattach:
-		srv.attach(req)
-
-	case ninep.Tflush:
-		srv.flush(req)
-
-	case ninep.Twalk:
-		srv.walk(req)
-
-	case ninep.Topen:
-		srv.open(req)
-
-	case ninep.Tcreate:
-		srv.create(req)
-
-	case ninep.Tread:
-		srv.read(req)
-
-	case ninep.Twrite:
-		srv.write(req)
-
-	case ninep.Tclunk:
-		srv.clunk(req)
-
-	case ninep.Tremove:
-		srv.remove(req)
-
-	case ninep.Tstat:
-		srv.stat(req)
-
-	case ninep.Twstat:
-		srv.wstat(req)
+	case ninep.Tauth,
+		ninep.Tattach,
+		ninep.Tflush,
+		ninep.Twalk,
+		ninep.Topen,
+		ninep.Tcreate,
+		ninep.Tread,
+		ninep.Twrite,
+		ninep.Tclunk,
+		ninep.Tremove,
+		ninep.Tstat,
+		ninep.Twstat:
+		req.RespondError(&ninep.Error{"Non-Tversion message received before Tversion sent", ninep.EINVAL})
 	}
+
 }
 
 // Performs the post processing required if the (*Req) Process() method

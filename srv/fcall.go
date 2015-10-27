@@ -5,6 +5,8 @@
 package srv
 
 import (
+	"sync/atomic"
+
 	"github.com/lionkov/ninep"
 )
 
@@ -42,6 +44,7 @@ func (srv *Srv) version(req *Req) {
 	}
 	conn.Unlock()
 
+	atomic.AddUint32(&srv.Versioned, 1)
 	req.RespondRversion(conn.Msize, ver)
 }
 
