@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/lionkov/ninep"
 	"github.com/lionkov/ninep/clnt"
@@ -91,6 +92,7 @@ func main() {
 	log.Printf("Server is at %v", srvAddr)
 
 	user := ninep.OsUsers.Uid2User(os.Geteuid())
+	fmt.Printf("# %v testing %v (%v)\n", time.Now(), bench, os.Args[1:])
 
 	if *bench == "all" || *bench == "read" {
 		for msize := uint32(8192); msize <= 1048576; msize *= 2 {

@@ -82,6 +82,7 @@ func (f *NullFS) Read(r *srv.Req) {
 		if fid.Qid.Path == Qzero {
 			count = int(r.Tc.Count)
 		}
+		copy(r.Rc.Data, make([]byte, count))
 	}
 	ninep.SetRreadCount(r.Rc, uint32(count))
 	r.Respond()
