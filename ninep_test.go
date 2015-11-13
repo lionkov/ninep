@@ -35,8 +35,10 @@ func TestEncode(t *testing.T) {
 	// TODO: put the replies in, then the decode testing when we get decode done.
 	var tests = []struct {
 		n string
-		b []byte
-		i []interface{}
+		tb []byte
+		ti []interface{}
+		rb []byte
+		ri []interface{}
 	}{
 		{
 			"Version test with 8192 byte msize and 9P2000",
@@ -173,12 +175,12 @@ func TestEncode(t *testing.T) {
 	}
 
 	for _, v := range tests {
-		b, err := msgEncode(v.i...)
+		b, err := msgEncode(v.ti...)
 		if err != nil {
 			t.Errorf("%v failed: %v", v.n, err)
 		}
-		if !reflect.DeepEqual(v.b, b.Bytes()) {
-			t.Errorf("msgEncode mismatch on %v: Got %v[%v], want %v[%v]", v.n, b.Bytes(), len(b.Bytes()), v.b, len(v.b))
+		if !reflect.DeepEqual(v.tb, b.Bytes()) {
+			t.Errorf("msgEncode mismatch on %v: Got %v[%v], want %v[%v]", v.n, b.Bytes(), len(b.Bytes()), v.tb, len(v.tb))
 		}
 	}
 
