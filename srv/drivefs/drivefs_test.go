@@ -73,3 +73,36 @@ func TestAttach(t *testing.T) {
 	rootfid := clnt.Root
 	t.Logf("Rootfid: %v", rootfid)
 }
+
+func TestWalk(t *testing.T) {
+
+	f, err := NewDriveFS(driveconfig, ctxt, drivesrv)
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+
+	user := ninep.OsUsers.Uid2User(os.Geteuid())
+	clnt, err := clnt.Mount("unix", f.Listener.Addr().String(), "/", uint32(*msize), user)
+
+	if err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
+
+	rootfid := clnt.Root
+	t.Logf("Rootfid: %v", rootfid)
+
+	ffid := clnt.FidAlloc()
+	var q1, q2 []ninep.Qid
+	if q1, err = clnt.Walk(rootfid, ffid, []string{"/ATestForDrivefs"}); err != nil {
+		t.Fatalf("%v", err)
+	} else {
+		t.Logf("QID from clone walk is %v", q1)
+	}
+
+	ffid = clnt.FidAlloc()
+	if q2, err = clnt.Walk(rootfid, ffid, []string{"/ATestForDrivefs"}); err != nil {
+		t.Fatalf("%v", err)
+	} else {
+		t.Logf("QID from clone walk is %v", q2)
+	}
+}

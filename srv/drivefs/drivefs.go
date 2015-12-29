@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"path"
 
 	"github.com/lionkov/ninep"
 	"github.com/lionkov/ninep/srv"
@@ -23,6 +24,9 @@ const (
 	Qroot = 'r'
 )
 
+type DriveID string
+type QIDString string
+
 type DriveFS struct {
 	srv.Srv
 	Listener net.Listener
@@ -31,14 +35,19 @@ type DriveFS struct {
 	Context  context.Context
 	Config   *oauth2.Config
 	Drive    *drive.Service
-	Token    oauth2.Token
+	//NFS *drive.FileService
+	Token  oauth2.Token
+	QidMap map[uint64]*Fid
+	FidMap map[DriveID]*Fid
 }
 
 type config func(*DriveFS) error
 
 type DriveFile struct {
-	Name string
-	*ninep.Qid
+	Name   string
+	ID     DriveID
+	Parent *ninep.Qid
+	QID    *ninep.Qid
 }
 
 type Fid struct {
@@ -46,9 +55,15 @@ type Fid struct {
 }
 
 var (
+	// preallocate QIDS
 	dirQids = map[string]*ninep.Qid{
-		".": &ninep.Qid{Type: ninep.QTDIR, Version: 0777, Path: Qroot},
+		"/": &ninep.Qid{Type: ninep.QTDIR, Version: 0777, Path: Qroot},
+		".": &ninep.Qid{Type: ninep.QTDIR, Version: 0777, Path: 0},
 	}
+
+	// Start the drive QIDs of at an insane number. Simple reason: catch bugs that we might
+	// not see until we hit 2^32 files. Ha ha.
+	nextQID = uint64(1 << 32)
 	// Verify that we correctly implement ReqOps
 	_ = srv.ReqOps(&DriveFS{})
 )
@@ -65,8 +80,70 @@ func (f *DriveFS) Write(r *srv.Req) {
 	r.RespondError(&ninep.Error{Err: "NOT YET", Errornum: ninep.EINVAL})
 }
 
+// Walk walks from a drive file to another file.
 func (f *DriveFS) Walk(r *srv.Req) {
-	r.RespondError(&ninep.Error{Err: "NOT YET", Errornum: ninep.EINVAL})
+	tc := r.Tc
+	fid := r.Fid.Aux.(*Fid)
+	log.Printf("Walk: fid %v", fid)
+
+	if len(tc.Wname) > 1 && tc.Qid.Type != ninep.QTDIR {
+		r.RespondError(ninep.ENOENT)
+		return
+	}
+
+	// The most common case is walking from '.', so we initialize to '.' and fix it up
+	// later if needed.
+	if r.Newfid.Aux == nil {
+		r.Newfid.Aux = &Fid{DriveFile: DriveFile{Name: ".", QID: dirQids["."]}}
+	}
+
+	if len(tc.Wname) == 0 {
+		r.RespondRwalk([]ninep.Qid{})
+		return
+	}
+
+	nfid := r.Newfid.Aux.(*Fid)
+	p := path.Join(fid.Name, path.Join(tc.Wname...))
+	log.Printf("Walk to %v", p)
+	// The docs say title, but what works is using name.
+	p = "trashed = false and name = '" + p + "'"
+	log.Printf("Walk to %v", p)
+	files := f.Drive.Files.List().Q(p).
+		Fields("files(id, name)")
+
+	rr, err := files.Do()
+	if err != nil || len(rr.Files) == 0 {
+		r.RespondError(&ninep.Error{Err: fmt.Sprintf("%v", err), Errornum: ninep.ENOENT})
+		return
+	}
+
+	if len(rr.Files) > 1 {
+		log.Printf("non unique name, what to do?")
+		r.RespondError(&ninep.Error{Err: "Non unique name", Errornum: ninep.ENOENT})
+		return
+	}
+
+	i := rr.Files[0]
+
+	if nf, ok := f.FidMap[DriveID(i.Id)]; !ok {
+		qid := nextQID
+		nextQID++
+		nfid.Name = i.Name
+		nfid.ID = DriveID(i.Id)
+		nfid.QID = &ninep.Qid{Path: qid, Version: 0555}
+		f.FidMap[DriveID(i.Id)] = nfid
+		f.QidMap[qid] = nfid
+	} else {
+		nfid = nf
+	}
+
+	r.Newfid.Aux.(*Fid).Name = i.Name
+	qids := make([]ninep.Qid, len(tc.Wname)-1)
+	r.Newfid.Aux.(*Fid).QID = nfid.QID
+	qids = append(qids, *nfid.QID)
+	log.Printf("Return fro walk is %v", qids)
+	r.RespondRwalk(qids)
+
 }
 
 func (f *DriveFS) Create(r *srv.Req) {
@@ -118,11 +195,16 @@ func (fs *DriveFS) Attach(r *srv.Req) {
 		log.Fatalf("Unable to retrieve drive Client %v", err)
 	}
 
-	r.Fid.Aux = &Fid{DriveFile: DriveFile{Name: "."}}
+	fid := &Fid{DriveFile: DriveFile{Name: ".", QID: dirQids["/"]}}
+	r.Fid.Aux = fid
 
 	fs.Config, fs.Context, fs.Drive = config, ctx, drive
+	fs.QidMap = make(map[uint64]*Fid)
+	fs.FidMap = make(map[DriveID]*Fid)
+	fs.QidMap[Qroot] = fid
+	// And what's the ID for the mount point? we don't know yet.
 
-	r.RespondRattach(dirQids["."])
+	r.RespondRattach(fid.QID)
 }
 
 func NewDriveFS(c ...config) (*DriveFS, error) {
@@ -137,5 +219,6 @@ func NewDriveFS(c ...config) (*DriveFS, error) {
 			return nil, err
 		}
 	}
+	//f.NFS = drive.NewFileService(f.Service)
 	return f, nil
 }
