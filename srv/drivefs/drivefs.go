@@ -8,8 +8,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
+	"net/http"
+	"os"
 	"path"
 
 	"github.com/lionkov/ninep"
@@ -35,7 +38,7 @@ type DriveFS struct {
 	Context  context.Context
 	Config   *oauth2.Config
 	Drive    *drive.Service
-	//NFS *drive.FileService
+	NFS *drive.FilesService
 	Token  oauth2.Token
 	QidMap map[uint64]*Fid
 	FidMap map[DriveID]*Fid
@@ -46,8 +49,12 @@ type config func(*DriveFS) error
 type DriveFile struct {
 	Name   string
 	ID     DriveID
+	Link string
 	Parent *ninep.Qid
 	QID    *ninep.Qid
+	File *drive.File
+	MD *drive.FilesGetCall
+	X *drive.FilesExportCall
 }
 
 type Fid struct {
@@ -68,7 +75,23 @@ var (
 	_ = srv.ReqOps(&DriveFS{})
 )
 
+// Read reads from the fid. It works for files only.
 func (f *DriveFS) Read(r *srv.Req) {
+	fid := r.Fid.Aux.(*Fid)
+	//x := f.NFS.Export(string(fid.ID), "application/octet-stream")
+	x := f.NFS.Get(string(fid.ID))
+	log.Printf("x is %v", x)
+	dl, err := x.Download()
+	if err != nil {
+		r.RespondError(&ninep.Error{Err: fmt.Sprintf("%v:%v", fid.ID, err), Errornum: ninep.EPERM})
+		log.Printf("Export %v\n", err)
+		return
+	}
+
+	defer dl.Body.Close()
+	_, err = io.Copy(os.Stdout, dl.Body)
+	log.Printf("%v", dl.Body)
+
 	r.RespondError(&ninep.Error{Err: "NOT YET", Errornum: ninep.EINVAL})
 }
 
@@ -109,7 +132,7 @@ func (f *DriveFS) Walk(r *srv.Req) {
 	p = "trashed = false and name = '" + p + "'"
 	log.Printf("Walk to %v", p)
 	files := f.Drive.Files.List().Q(p).
-		Fields("files(id, name)")
+		Fields("files(id, name, webContentLink)")
 
 	rr, err := files.Do()
 	if err != nil || len(rr.Files) == 0 {
@@ -129,8 +152,18 @@ func (f *DriveFS) Walk(r *srv.Req) {
 		qid := nextQID
 		nextQID++
 		nfid.Name = i.Name
+		nfid.Link = i.WebContentLink
 		nfid.ID = DriveID(i.Id)
 		nfid.QID = &ninep.Qid{Path: qid, Version: 0555}
+		// We know it's there. Get the metadata.
+		// This is a little naive. The metadata may change.
+		// We'll have to fix this up later.
+		g, err := f.NFS.Get(string(fid.ID)).Do()
+		if err != nil {
+			r.RespondError(&ninep.Error{Err: fmt.Sprintf("%v", err), Errornum: ninep.EINVAL})
+			return
+		}
+		nfid.File = g
 		f.FidMap[DriveID(i.Id)] = nfid
 		f.QidMap[qid] = nfid
 	} else {
@@ -150,8 +183,28 @@ func (f *DriveFS) Create(r *srv.Req) {
 	r.RespondError(&ninep.Error{Err: "NOT YET", Errornum: ninep.EINVAL})
 }
 
+// Open responds to a TOpen request with success, alwyas, for now.
 func (f *DriveFS) Open(r *srv.Req) {
-	r.RespondError(&ninep.Error{Err: "NOT YET", Errornum: ninep.EINVAL})
+	fid := r.Fid.Aux.(*Fid)
+	log.Printf("open: fid.Link %v, ", fid.Link)
+	if fid.Link == "" {
+		r.RespondError(&ninep.Error{Err: "Permission denied", Errornum: ninep.EPERM})
+		return
+	}
+
+	if false {
+		resp, err := http.Get(fid.Link)
+		log.Printf("resp %v Body '%v', err %v", resp, resp.Body, err)
+		if err != nil {
+			r.RespondError(&ninep.Error{Err: fmt.Sprintf("%v:%v", fid.Link, err), Errornum: ninep.EPERM})
+			log.Printf("%v\n", err)
+			return
+		}
+		defer resp.Body.Close()
+		_, err = io.Copy(os.Stdout, resp.Body)
+		log.Printf("%v", resp.Body)
+	}
+	r.RespondRopen(&r.Tc.Qid, 0)
 }
 
 func (f *DriveFS) Remove(r *srv.Req) {
@@ -180,7 +233,7 @@ func (fs *DriveFS) Attach(r *srv.Req) {
 	// Tough call, but realistically, the user is starting the server, so we're going to let them
 	// set up the server secret and cache when they start the server. This may change.
 	// We don't print the Secret or the Cache when this fails for what I think are obvious reasons.
-	config, err := google.ConfigFromJSON([]byte(fs.Secret), drive.DriveMetadataReadonlyScope)
+	config, err := google.ConfigFromJSON([]byte(fs.Secret), drive.DriveScope)
 	if err != nil {
 		log.Fatalf("Unable to parse client secret file to config: %v", err)
 	}
@@ -190,7 +243,7 @@ func (fs *DriveFS) Attach(r *srv.Req) {
 	}
 	client := config.Client(ctx, &fs.Token)
 
-	drive, err := drive.New(client)
+	newDrive, err := drive.New(client)
 	if err != nil {
 		log.Fatalf("Unable to retrieve drive Client %v", err)
 	}
@@ -198,10 +251,12 @@ func (fs *DriveFS) Attach(r *srv.Req) {
 	fid := &Fid{DriveFile: DriveFile{Name: ".", QID: dirQids["/"]}}
 	r.Fid.Aux = fid
 
-	fs.Config, fs.Context, fs.Drive = config, ctx, drive
+	fs.Config, fs.Context, fs.Drive = config, ctx, newDrive
 	fs.QidMap = make(map[uint64]*Fid)
 	fs.FidMap = make(map[DriveID]*Fid)
 	fs.QidMap[Qroot] = fid
+	fs.NFS = drive.NewFilesService(fs.Drive)
+
 	// And what's the ID for the mount point? we don't know yet.
 
 	r.RespondRattach(fid.QID)
@@ -219,6 +274,5 @@ func NewDriveFS(c ...config) (*DriveFS, error) {
 			return nil, err
 		}
 	}
-	//f.NFS = drive.NewFileService(f.Service)
 	return f, nil
 }

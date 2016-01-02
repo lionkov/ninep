@@ -92,17 +92,97 @@ func TestWalk(t *testing.T) {
 	t.Logf("Rootfid: %v", rootfid)
 
 	ffid := clnt.FidAlloc()
-	var q1, q2 []ninep.Qid
+	var q1, q2, q3 []ninep.Qid
 	if q1, err = clnt.Walk(rootfid, ffid, []string{"/ATestForDrivefs"}); err != nil {
-		t.Fatalf("%v", err)
+		t.Errorf("%v", err)
 	} else {
 		t.Logf("QID from clone walk is %v", q1)
 	}
 
 	ffid = clnt.FidAlloc()
 	if q2, err = clnt.Walk(rootfid, ffid, []string{"/ATestForDrivefs"}); err != nil {
-		t.Fatalf("%v", err)
+		t.Errorf("%v", err)
 	} else {
 		t.Logf("QID from clone walk is %v", q2)
 	}
+
+	ffid = clnt.FidAlloc()
+	if _, err = clnt.Walk(rootfid, ffid, []string{"/NoTestForDrivefs"}); err == nil {
+		t.Errorf("NoTestForDrivefs: want err, got nil")
+	} else {
+		t.Logf("err for NoTestForDrivefs is %v", err)
+	}
+
+	ffid = clnt.FidAlloc()
+	if q3, err = clnt.Walk(rootfid, ffid, []string{"/ATestFolderForDrivefs"}); err != nil {
+		t.Errorf("%v", err)
+	} else {
+		t.Logf("QID from clone walk is %v", q3)
+	}
+}
+
+func TestOpen(t *testing.T) {
+
+	f, err := NewDriveFS(driveconfig, ctxt, drivesrv)
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+
+	user := ninep.OsUsers.Uid2User(os.Geteuid())
+	clnt, err := clnt.Mount("unix", f.Listener.Addr().String(), "/", uint32(*msize), user)
+
+	if err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
+
+	rootfid := clnt.Root
+	t.Logf("Rootfid: %v", rootfid)
+
+	ffid := clnt.FidAlloc()
+	var q1 []ninep.Qid
+	if q1, err = clnt.Walk(rootfid, ffid, []string{"/ATestForDrivefs"}); err != nil {
+		t.Fatalf("%v", err)
+	} else {
+		t.Logf("QID from clone walk is %v", q1)
+	}
+
+	if err := clnt.Open(ffid, 0); err != nil {
+		t.Fatalf("%v", err)
+	}
+}
+
+func TestRead(t *testing.T) {
+
+	f, err := NewDriveFS(driveconfig, ctxt, drivesrv)
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+
+	user := ninep.OsUsers.Uid2User(os.Geteuid())
+	clnt, err := clnt.Mount("unix", f.Listener.Addr().String(), "/", uint32(*msize), user)
+
+	if err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
+
+	rootfid := clnt.Root
+	t.Logf("Rootfid: %v", rootfid)
+
+	ffid := clnt.FidAlloc()
+	var q1 []ninep.Qid
+	if q1, err = clnt.Walk(rootfid, ffid, []string{"/ATestForDrivefs"}); err != nil {
+		t.Fatalf("%v", err)
+	} else {
+		t.Logf("QID from clone walk is %v", q1)
+	}
+
+	if err := clnt.Open(ffid, 0); err != nil {
+		t.Fatalf("%v", err)
+	}
+
+	var b []byte
+	if b, err = clnt.Read(ffid, 0, 64*1024); err != nil {
+		t.Fatalf("Read %v", err)
+	}
+	t.Logf("b is %v", b)
 }
