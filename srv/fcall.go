@@ -337,7 +337,7 @@ func (srv *Srv) read(req *Req) {
 		return
 	}
 
-	if !fid.opened || (fid.Omode&3) == p.OWRITE {
+	if !fid.opened || (fid.Omode&3) == ninep.OWRITE {
 		req.RespondError(Ebaduse)
 		return
 	}
