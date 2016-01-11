@@ -337,6 +337,11 @@ func (srv *Srv) read(req *Req) {
 		return
 	}
 
+	if !fid.opened || (fid.Omode&3) == p.OWRITE {
+		req.RespondError(Ebaduse)
+		return
+	}
+
 	if (fid.Type & ninep.QTDIR) != 0 {
 		fid.Lock()
 		if tc.Offset == 0 {
