@@ -58,6 +58,8 @@ var (
 
 func TestAttach(t *testing.T) {
 
+	t.Skip("FIXME(rminnich): fails without special configuration")
+
 	f, err := NewDriveFS(driveconfig, ctxt, drivesrv)
 	if err != nil {
 		t.Fatalf("%v", err)
@@ -75,6 +77,8 @@ func TestAttach(t *testing.T) {
 }
 
 func TestWalk(t *testing.T) {
+
+	t.Skip("FIXME(rminnich): fails without special configuration")
 
 	f, err := NewDriveFS(driveconfig, ctxt, drivesrv)
 	if err != nil {
@@ -123,6 +127,8 @@ func TestWalk(t *testing.T) {
 
 func TestOpen(t *testing.T) {
 
+	t.Skip("FIXME(rminnich): fails without special configuration")
+
 	f, err := NewDriveFS(driveconfig, ctxt, drivesrv)
 	if err != nil {
 		t.Fatalf("%v", err)
@@ -152,6 +158,8 @@ func TestOpen(t *testing.T) {
 }
 
 func TestRead(t *testing.T) {
+
+	t.Skip("FIXME(rminnich): fails without special configuration")
 
 	f, err := NewDriveFS(driveconfig, ctxt, drivesrv)
 	if err != nil {
