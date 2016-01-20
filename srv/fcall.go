@@ -65,7 +65,7 @@ func (srv *Srv) auth(req *Req) {
 	}
 
 	var user ninep.User = nil
-	if tc.Unamenum != ninep.NOUID || conn.Dotu {
+	if tc.Unamenum != ninep.NOUID && conn.Dotu {
 		user = srv.Upool.Uid2User(int(tc.Unamenum))
 	} else if tc.Uname != "" {
 		user = srv.Upool.Uname2User(tc.Uname)
@@ -121,7 +121,7 @@ func (srv *Srv) attach(req *Req) {
 	}
 
 	var user ninep.User = nil
-	if tc.Unamenum != ninep.NOUID || conn.Dotu {
+	if tc.Unamenum != ninep.NOUID && conn.Dotu {
 		user = srv.Upool.Uid2User(int(tc.Unamenum))
 	} else if tc.Uname != "" {
 		user = srv.Upool.Uname2User(tc.Uname)
