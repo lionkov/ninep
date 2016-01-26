@@ -275,6 +275,16 @@ func (clnt *Clnt) recv() {
 	}
 
 closed:
+	clnt.Lock()
+	// Drain all sent notifications from the send goroutine so
+	// that it can accept the done notification below.  This is
+	// necessary in cases where the conn.Read returned an error
+	// and the normal <-r.Sent is never reached.
+	for r := clnt.reqfirst; r != nil; r = r.next {
+		<-r.Sent
+	}
+	clnt.Unlock()
+
 	clnt.done <- true
 
 	/* send error to all pending requests */
