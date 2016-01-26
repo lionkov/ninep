@@ -24,6 +24,21 @@ var debug = flag.Int("debug", 0, "print debug messages")
 var numDir = flag.Int("numdir", 16384, "Number of directory entries for readdir testing")
 var numMount = flag.Int("nummount", 65536, "Number of mounts to make in TestAttach")
 
+func TestTversionBadConn(t *testing.T) {
+	conn0, conn1 := net.Pipe()
+	conn1.Close()
+
+	user := ninep.OsUsers.Uid2User(os.Geteuid())
+	_, err := MountConn(conn0, "/", 8192, user)
+	ninepErr, ok := err.(*ninep.Error)
+	if !ok {
+		t.Fatalf("Attach expected ninep.Error, got %T: %v", err, err)
+	}
+	if ninepErr.Errornum != ninep.EIO {
+		t.Fatalf("Attach expected %v, got %v", ninep.EIO, ninepErr.Errornum)
+	}
+}
+
 func TestAttachWithoutTversion(t *testing.T) {
 	var err error
 	flag.Parse()
